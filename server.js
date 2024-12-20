@@ -226,9 +226,41 @@ app.get('/api/movies/popular', (req, res) => {
   res.status(200).json(sortedMovies);
 });
 
+app.get('/api/theaters/:theaterId/rooms/:roomId/seating-graph', (req, res) => {
+  const { theaterId, roomId } = req.params;
+
+  const theater = theaters.find((t) => t.id === parseInt(theaterId));
+  if (!theater) {
+    return res.status(404).json({ message: 'Theater not found' });
+  }
+
+  const room = theater.rooms.find((r) => r.id === parseInt(roomId));
+  if (!room) {
+    return res.status(404).json({ message: 'Room not found' });
+  }
+
+  const seating = room.seating;
+
+  // Prepare data for heatmap-like visualization
+  const graphData = seating.map((row, rowIndex) => {
+    return row.map((col, colIndex) => ({
+      x: colIndex,
+      y: rowIndex,
+      value: col, // 0 for available, 1 for booked
+    }));
+  });
+
+  res.status(200).json({
+    roomName: room.name,
+    graphData: graphData.flat(),
+  });
+});
+
 /**
  * Helper function to visualize the seating arrangement
  */
+
+
 function getSeatingVisualization(roomId) {
   const theater = theaters.find(t => t.rooms.some(r => r.id === roomId));
   if (!theater) return 'Theater not found';
