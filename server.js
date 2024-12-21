@@ -2,18 +2,15 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const app = express();
 const PORT = 3000;
+const cron = require('node-cron');
 
-// Middleware
 app.use(bodyParser.json());
 
-// In-memory data storage
 let theaters = [];
 let movies = [];
-let ticketQueue = []; // Queue for ticket bookings
+let ticketQueue = [];
 
-/**
- * API 1: Add a Theater with Rooms
- */
+
 app.post('/api/theaters', (req, res) => {
   const { name, location, rooms } = req.body;
 
@@ -26,8 +23,7 @@ app.post('/api/theaters', (req, res) => {
       return res.status(400).json({ message: 'Invalid room data' });
     }
 
-    // Add seating chart for the room
-    room.id = index + 1; // Unique room ID
+    room.id = index + 1
     room.seating = Array(room.capacity.rows).fill().map(() => Array(room.capacity.columns).fill(0));
   });
 
@@ -46,9 +42,7 @@ app.post('/api/theaters', (req, res) => {
   });
 });
 
-/**
- * API 2: Add a Movie to a Specific Theater Room
- */
+
 app.post('/api/movies', (req, res) => {
   const { title, actor, actress, duration, theaterId, roomId, popularity } = req.body;
 
@@ -75,7 +69,8 @@ app.post('/api/movies', (req, res) => {
     theaterId,
     roomId,
     popularity: popularity || 0,
-    bookedTickets: 0 // Initialize the bookedTickets counter
+    status: 'pending', 
+    bookedTickets: 0 
   };
 
   movies.push(newMovie);
@@ -86,26 +81,31 @@ app.post('/api/movies', (req, res) => {
   });
 });
 
-/**
- * API 3: Get All Movies with Theater and Room Info and Number of Tickets Booked
- */
 app.get('/api/movies', (req, res) => {
-  const { sortBy } = req.query;  // Optional query parameter to sort movies
+  const { sortBy, title } = req.query;
 
-  let enrichedMovies = movies.map(movie => {
+  let filteredMovies = movies;
+
+  if (title) {
+    filteredMovies = filteredMovies.filter(movie =>
+      movie.title.toLowerCase().includes(title.toLowerCase())
+    );
+  }
+
+  let enrichedMovies = filteredMovies.map(movie => {
     const theater = theaters.find(t => t.id === movie.theaterId);
     const room = theater?.rooms.find(r => r.id === movie.roomId);
 
     return {
-      ...movie,
+      title: movie.title,
       theater: theater?.name || 'Unknown Theater',
       room: room?.name || 'Unknown Room',
       showtimes: room?.showtimes || [],
-      bookedTickets: movie.bookedTickets // Add bookedTickets info
+      bookedTickets: movie.bookedTickets,
+      status: movie.status 
     };
   });
 
-  // Sort movies by popularity if the query parameter is provided
   if (sortBy === 'popularity') {
     enrichedMovies = enrichedMovies.sort((a, b) => b.popularity - a.popularity);
   }
@@ -113,16 +113,13 @@ app.get('/api/movies', (req, res) => {
   res.status(200).json(enrichedMovies);
 });
 
-/**
- * API 4: Get All Theaters
- */
+
+
 app.get('/api/theaters', (req, res) => {
   res.status(200).json(theaters);
 });
 
-/**
- * API 5: Book a Ticket (Using Queue)
- */
+
 app.post('/api/book-ticket', (req, res) => {
   const { movieId, theaterId, roomId, showtime, seats } = req.body;
 
@@ -130,19 +127,19 @@ app.post('/api/book-ticket', (req, res) => {
     return res.status(400).json({ message: 'Invalid input data' });
   }
 
-  // Add booking request to the queue
+
   ticketQueue.push({ movieId, theaterId, roomId, showtime, seats });
 
-  // Process the queue in order
+
   processQueue(res);
 });
 
-// Function to process the queue
+
 function processQueue(response) {
   if (ticketQueue.length === 0) return;
 
-  // Dequeue the next booking request
-  const bookingRequest = ticketQueue.shift(); // Get the first booking in the queue
+
+  const bookingRequest = ticketQueue.shift(); 
   const { movieId, theaterId, roomId, showtime, seats } = bookingRequest;
 
   const theater = theaters.find(t => t.id === theaterId);
@@ -179,23 +176,21 @@ function processQueue(response) {
 
   seats.forEach(seat => {
     const { row, col } = seat;
-    seating[row][col] = 1; // Mark as booked
+    seating[row][col] = 1; 
   });
 
-  movie.bookedTickets += seats.length; // Increment bookedTickets for the movie
+  movie.bookedTickets += seats.length; 
 
   response.status(200).json({
     message: 'Tickets booked successfully',
     bookedSeats: seats
   });
 
-  // Process the next booking in the queue
+
   setImmediate(() => processQueue(response));
 };
 
-/**
- * API 6: Get Booked Tickets for a Movie by Title
- */
+
 app.get('/api/movies/tickets', (req, res) => {
   const { title } = req.query;
 
@@ -215,14 +210,11 @@ app.get('/api/movies/tickets', (req, res) => {
   });
 });
 
-/**
- * API 7: Get Popular Movies
- */
+
 app.get('/api/movies/popular', (req, res) => {
-  // Sort movies by popularity in descending order
+
   const sortedMovies = movies.sort((a, b) => b.popularity - a.popularity);
 
-  // Return the top popular movies
   res.status(200).json(sortedMovies);
 });
 
@@ -241,12 +233,12 @@ app.get('/api/theaters/:theaterId/rooms/:roomId/seating-graph', (req, res) => {
 
   const seating = room.seating;
 
-  // Prepare data for heatmap-like visualization
+
   const graphData = seating.map((row, rowIndex) => {
     return row.map((col, colIndex) => ({
       x: colIndex,
       y: rowIndex,
-      value: col, // 0 for available, 1 for booked
+      value: col,
     }));
   });
 
@@ -255,33 +247,40 @@ app.get('/api/theaters/:theaterId/rooms/:roomId/seating-graph', (req, res) => {
     graphData: graphData.flat(),
   });
 });
-
-/**
- * Helper function to visualize the seating arrangement
- */
-
-
-function getSeatingVisualization(roomId) {
-  const theater = theaters.find(t => t.rooms.some(r => r.id === roomId));
-  if (!theater) return 'Theater not found';
-
-  const room = theater.rooms.find(r => r.id === roomId);
-  if (!room) return 'Room not found';
-
-  const seating = room.seating;
-
-  let visual = 'Seating Arrangement:\n';
-  seating.forEach((row, rowIndex) => {
-    visual += row.map(col => col === 0 ? 'O' : 'X').join(' ') + `  Row ${rowIndex + 1}\n`;
-  });
-
-  return visual;
+function isMovieStarted(showtime) {
+  const showtimeMs = new Date(showtime).getTime();
+  const currentTimeMs = Date.now();
+  return currentTimeMs >= showtimeMs;
 }
 
-// Example usage
-console.log(getSeatingVisualization(1));  // Example: Visualize seating for room 1
 
-// Start the server
+function isMovieDone(showtime, duration) {
+  const showtimeMs = new Date(showtime).getTime();
+  const durationMs = duration * 60 * 1000; 
+  const currentTimeMs = Date.now();
+  return currentTimeMs >= showtimeMs + durationMs;
+}
+
+
+cron.schedule('*/1 * * * *', () => {
+  movies.forEach(movie => {
+    const { showtime, duration, status } = movie;
+
+    if (status === 'pending' && isMovieStarted(showtime)) {
+      movie.status = 'started';
+      console.log(`Movie "${movie.title}" has started.`);
+    }
+
+    if (status === 'started' && isMovieDone(showtime, duration)) {
+      movie.status = 'done';
+      console.log(`Movie "${movie.title}" has been marked as "done".`);
+    }
+  });
+});
+
+
+
+
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
